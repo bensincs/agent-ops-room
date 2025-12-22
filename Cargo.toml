@@ -1,0 +1,39 @@
+[workspace]
+members = [
+    "crates/ui-bridge",
+    "crates/facilitator",
+    "crates/gateway",
+    "crates/specialist-agent",
+    "crates/common", "crates/user-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Agent Ops Room Contributors"]
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+# Async runtime - used by all binaries for #[tokio::main] and tokio::signal::ctrl_c()
+tokio = { version = "1.35", features = ["macros", "signal", "rt-multi-thread"] }
+
+# Logging - used by all binaries for structured logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
+
+# Serialization - used by common crate for Message types
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# CLI argument parsing with env support - used by all binaries for configuration
+clap = { version = "4.5", features = ["derive", "env"] }
+
+# MQTT client - async Rust MQTT library
+rumqttc = "0.24"
+
+# Web framework - used only by ui-bridge for HTTP/SSE endpoints
+axum = "0.7"
+
+# Common crate - shared types and utilities
+common = { path = "crates/common" }

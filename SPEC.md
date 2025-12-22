@@ -2,7 +2,7 @@
 
 Agent Ops Room (AOR) is a **moderated, MQTT-based coordination runtime for AI agents and humans**.
 
-This document is the **authoritative protocol specification**.  
+This document is the **authoritative protocol specification**.
 Any implementation claiming AOR compatibility MUST follow this document.
 
 ---
@@ -62,7 +62,7 @@ All messages MUST use the following envelope:
 ```json
 {
   "id": "msg_123",
-  "type": "say | event | task | mic_grant | result | reject",
+  "type": "say | task | mic_grant | result | reject",
   "room_id": "room_1",
   "from": { "kind": "user | agent | system", "id": "agent.researcher" },
   "ts": 1734530000,
@@ -88,8 +88,8 @@ All messages MUST use the following envelope:
 
 ### 5.1 `say`
 
-**Purpose:** Free-form human chat  
-**Who:** User, Facilitator  
+**Purpose:** Free-form human chat
+**Who:** User, Facilitator
 **Topic:** `rooms/{roomId}/public`
 
 ```json
@@ -107,36 +107,10 @@ Notes:
 
 ---
 
-### 5.2 `event`
+### 5.2 `task`
 
-**Purpose:** Human-readable system notice  
-**Who:** Facilitator, Gateway  
-**Topic:** `public` or `control`
-
-```json
-{
-  "type": "event",
-  "payload": {
-    "event": "task_assigned",
-    "task_id": "task_42",
-    "assignee": "@researcher",
-    "summary": "Find 3 options with pros/cons"
-  }
-}
-```
-
-Used for:
-- task assignment
-- task cancellation
-- mic revocation
-- agent join/leave
-
----
-
-### 5.3 `task`
-
-**Purpose:** Authoritative instruction to perform work  
-**Who:** Facilitator  
+**Purpose:** Authoritative instruction to perform work
+**Who:** Facilitator
 **Topic:** `rooms/{roomId}/agents/{agentId}/inbox`
 
 ```json
@@ -157,10 +131,10 @@ Rules:
 
 ---
 
-### 5.4 `mic_grant`
+### 5.3 `mic_grant`
 
-**Purpose:** Permission to speak publicly  
-**Who:** Facilitator  
+**Purpose:** Permission to speak publicly
+**Who:** Facilitator
 **Topic:** `rooms/{roomId}/control`
 
 ```json
@@ -191,10 +165,10 @@ Rules:
 
 ---
 
-### 5.5 `result`
+### 5.4 `result`
 
-**Purpose:** Structured agent disclosure  
-**Who:** Agent → Gateway → Public  
+**Purpose:** Structured agent disclosure
+**Who:** Agent → Gateway → Public
 **Topics:**
 - `rooms/{roomId}/public_candidates`
 - `rooms/{roomId}/public`
@@ -218,10 +192,10 @@ Interpretation:
 
 ---
 
-### 5.6 `reject`
+### 5.5 `reject`
 
-**Purpose:** Explain why a message was blocked  
-**Who:** Gateway  
+**Purpose:** Explain why a message was blocked
+**Who:** Gateway
 **Topic:** `rooms/{roomId}/control`
 
 ```json
@@ -315,15 +289,13 @@ Early warning or constraint.
 ---
 
 ### 6.6 `result`
-Final structured output.
+Final output (answer, summary, or conclusion).
 
 ```json
 {
   "message_type": "result",
   "content": {
-    "summary": "Use a Gateway to moderate agent output.",
-    "recommendation": "Adopt AOR Gateway pattern.",
-    "next_steps": ["Implement gateway in Rust"]
+    "text": "Use a Gateway to moderate agent output. I recommend adopting the AOR Gateway pattern. Next step: implement gateway in Rust."
   }
 }
 ```
@@ -395,12 +367,12 @@ AOR is NOT:
 
 > **AOR is ChatOps for AI agents — with enforced moderation and humans in the loop.**
 
-Agents act like a team.  
+Agents act like a team.
 Humans stay in control.
 
 ---
 
 ## Status
 
-**Agent Ops Room (AOR) Spec v0.1**  
+**Agent Ops Room (AOR) Spec v0.1**
 Experimental, open-source, implementation-driven.

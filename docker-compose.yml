@@ -1,0 +1,78 @@
+version: "3.8"
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: aor-mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    restart: unless-stopped
+
+  mqtt-explorer:
+    image: smeagolworms4/mqtt-explorer
+    container_name: aor-mqtt-explorer
+    ports:
+      - "4001:4000"
+    environment:
+      - HTTP_PORT=4000
+    restart: unless-stopped
+
+  # Uncomment to run services in Docker (after implementation)
+  # ui-bridge:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #     target: ui-bridge
+  #   container_name: aor-ui-bridge
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - AOR_MQTT_HOST=mosquitto
+  #     - AOR_MQTT_PORT=1883
+  #   depends_on:
+  #     - mosquitto
+  #   restart: unless-stopped
+
+  # facilitator:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #     target: facilitator
+  #   container_name: aor-facilitator
+  #   environment:
+  #     - AOR_MQTT_HOST=mosquitto
+  #     - AOR_MQTT_PORT=1883
+  #   depends_on:
+  #     - mosquitto
+  #   restart: unless-stopped
+
+  # gateway:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #     target: gateway
+  #   container_name: aor-gateway
+  #   environment:
+  #     - AOR_MQTT_HOST=mosquitto
+  #     - AOR_MQTT_PORT=1883
+  #   depends_on:
+  #     - mosquitto
+  #   restart: unless-stopped
+
+  # specialist-agent:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #     target: specialist-agent
+  #   container_name: aor-specialist-agent
+  #   environment:
+  #     - AOR_MQTT_HOST=mosquitto
+  #     - AOR_MQTT_PORT=1883
+  #     - AOR_AGENT_ID=researcher
+  #   depends_on:
+  #     - mosquitto
+  #   restart: unless-stopped

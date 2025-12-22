@@ -111,6 +111,137 @@ Small binaries. Clear contracts. MQTT as the backbone.
 - Early-stage
 - Spec-driven
 - Implementation in Rust
+- **Gateway**: ✅ Implemented and working
+
+---
+
+## Quick Start
+
+### Prerequisites
+- Docker and Docker Compose
+- Rust (for running services locally)
+
+### 1. Start Infrastructure
+
+Start the MQTT broker and viewer:
+
+```bash
+docker-compose up -d
+```
+
+This starts:
+- **Mosquitto** (MQTT broker) on port 1883
+- **MQTT Explorer** (web UI) on http://localhost:4001
+
+### 2. Run the Gateway
+
+In a new terminal:
+
+```bash
+cargo run --bin gateway -- --room-id default
+```
+
+Or with custom settings:
+
+```bash
+AOR_MQTT_HOST=localhost \
+AOR_ROOM_ID=my-room \
+cargo run --bin gateway
+```
+
+### 3. View MQTT Messages
+
+Open http://localhost:4001 in your browser to see the MQTT Explorer.
+
+Connect to:
+- **Host**: `host.docker.internal` (on Mac/Windows) or `172.17.0.1` (on Linux)
+- **Port**: `1883`
+
+You'll see all topics:
+```
+rooms/
+  └── default/
+      ├── public             # Approved messages
+      ├── public_candidates  # Agent messages awaiting approval
+      └── control            # Mic grants, rejections, events
+```
+
+### 4. Test the Gateway
+
+You can publish test messages using MQTT Explorer or `mosquitto_pub`:
+
+```bash
+# Publish a mic grant
+mosquitto_pub -h localhost -p 1883 \
+  -t "rooms/default/control" \
+  -m '{
+    "id": "grant_1",
+    "type": "mic_grant",
+    "room_id": "default",
+    "from": {"kind": "system", "id": "facilitator"},
+    "ts": 1734530000,
+    "payload": {
+      "task_id": "task_1",
+      "agent_id": "researcher",
+      "max_messages": 3,
+      "allowed_message_types": ["ack", "finding", "result"],
+      "expires_at": 9999999999
+    }
+  }'
+
+# Publish an agent result (should be approved)
+mosquitto_pub -h localhost -p 1883 \
+  -t "rooms/default/public_candidates" \
+  -m '{
+    "id": "msg_1",
+    "type": "result",
+    "room_id": "default",
+    "from": {"kind": "agent", "id": "researcher"},
+    "ts": 1734530001,
+    "payload": {
+      "task_id": "task_1",
+      "message_type": "finding",
+      "content": {"text": "Found interesting data"}
+    }
+  }'
+```
+
+Watch the gateway logs and MQTT Explorer to see:
+- The message validated
+- Republished to `rooms/default/public`
+- Or rejected to `rooms/default/control` if invalid
+
+### 5. Stop Everything
+
+```bash
+docker-compose down
+```
+
+---
+
+## Configuration
+
+All services support configuration via:
+
+**Environment Variables** (recommended):
+```bash
+AOR_MQTT_HOST=localhost
+AOR_MQTT_PORT=1883
+AOR_ROOM_ID=my-room
+```
+
+**CLI Arguments**:
+```bash
+cargo run --bin gateway -- \
+  --mqtt-host localhost \
+  --mqtt-port 1883 \
+  --room-id my-room
+```
+
+See `--help` for all options:
+```bash
+cargo run --bin gateway -- --help
+```
 
 ---
 
