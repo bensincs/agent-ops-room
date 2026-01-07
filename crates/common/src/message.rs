@@ -27,6 +27,7 @@ pub enum EnvelopeType {
     Say,
     Task,
     MicGrant,
+    MicRevoke,
     Result,
     Reject,
     Heartbeat,
@@ -199,4 +200,11 @@ pub struct HeartbeatPayload {
     /// Optional agent description (sent every 3rd heartbeat)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+}
+
+/// Mic revoke payload
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MicRevokePayload {
+    pub task_id: String,
+    pub agent_id: String,
 }

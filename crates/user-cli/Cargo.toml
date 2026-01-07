@@ -15,7 +15,8 @@ serde_json.workspace = true
 clap.workspace = true
 rumqttc.workspace = true
 
-# For interactive CLI
-rustyline = "14.0"
+# For TUI
+ratatui = "0.29"
+crossterm = "0.28"
 chrono = "0.4"
 anyhow = "1.0"

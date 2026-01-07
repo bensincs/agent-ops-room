@@ -67,7 +67,10 @@ impl MicGrantTracker {
         }
 
         // Check message type allowed
-        if !grant.allowed_message_types.contains(&message_type.to_string()) {
+        if !grant
+            .allowed_message_types
+            .contains(&message_type.to_string())
+        {
             return Err(ValidationError::MessageTypeNotAllowed);
         }
 
@@ -83,9 +86,9 @@ impl MicGrantTracker {
     }
 
     /// Revoke a mic grant (cleanup)
-    #[allow(dead_code)]
     pub fn revoke(&mut self, agent_id: &str, task_id: &str) {
-        self.grants.remove(&(agent_id.to_string(), task_id.to_string()));
+        self.grants
+            .remove(&(agent_id.to_string(), task_id.to_string()));
     }
 }
 

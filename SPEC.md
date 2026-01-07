@@ -49,6 +49,9 @@ rooms/{roomId}/control
 rooms/{roomId}/agents/{agentId}/inbox
   └─ Facilitator → agent tasks (authoritative)
 
+rooms/{roomId}/agents/{agentId}/heartbeat
+  └─ Agent presence indication (periodic)
+
 rooms/{roomId}/agents/{agentId}/work
   └─ Private agent scratch, tool output, memory
 ```
@@ -62,7 +65,7 @@ All messages MUST use the following envelope:
 ```json
 {
   "id": "msg_123",
-  "type": "say | task | mic_grant | result | reject",
+  "type": "say | task | mic_grant | mic_revoke | heartbeat | result | reject",
   "room_id": "room_1",
   "from": { "kind": "user | agent | system", "id": "agent.researcher" },
   "ts": 1734530000,
@@ -165,7 +168,54 @@ Rules:
 
 ---
 
-### 5.4 `result`
+### 5.4 `mic_revoke`
+
+**Purpose:** Revoke permission to speak publicly
+**Who:** Facilitator
+**Topic:** `rooms/{roomId}/control`
+
+```json
+{
+  "type": "mic_revoke",
+  "payload": {
+    "task_id": "task_42",
+    "agent_id": "agent.researcher",
+    "reason": "task_cancelled"
+  }
+}
+```
+
+Rules:
+- Immediately invalidates any active mic grant for the specified task
+- Gateway will reject any subsequent messages from that agent for that task
+- Reason is optional but recommended for debugging
+
+---
+
+### 5.5 `heartbeat`
+
+**Purpose:** Agent presence indication
+**Who:** Agents, Facilitator
+**Topic:** `rooms/{roomId}/agents/{agentId}/heartbeat`
+
+```json
+{
+  "type": "heartbeat",
+  "payload": {
+    "ts": 1734530000,
+    "description": "Math Agent - performs mathematical calculations"
+  }
+}
+```
+
+Rules:
+- Sent periodically (typically every 5 seconds)
+- Used by facilitator to track available agents
+- Description is optional but helpful for coordination
+
+---
+
+### 5.6 `result`
 
 **Purpose:** Structured agent disclosure
 **Who:** Agent → Gateway → Public
@@ -192,7 +242,7 @@ Interpretation:
 
 ---
 
-### 5.5 `reject`
+### 5.7 `reject`
 
 **Purpose:** Explain why a message was blocked
 **Who:** Gateway

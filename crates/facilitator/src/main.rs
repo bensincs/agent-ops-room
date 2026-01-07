@@ -10,8 +10,8 @@ mod llm;
 use agent_registry::AgentRegistry;
 use clap::Parser;
 use common::message::{
-    FromKind, MicGrantPayload, ResultContent, ResultMessageType, ResultOutcome, ResultPayload,
-    SayPayload, TaskPayload,
+    AckContent, FromKind, HeartbeatPayload, MicGrantPayload, MicRevokePayload, ResultContent,
+    ResultMessageType, ResultOutcome, ResultPayload, SayPayload, TaskPayload,
 };
 use common::{topics, Envelope, EnvelopeType, MessageHistory, Sender, SenderKind};
 use config::FacilitatorConfig;
@@ -61,6 +61,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Facilitator running");
 
+    // Spawn heartbeat task
+    let client_clone = client.clone();
+    let room_id = config.room_id.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+        loop {
+            interval.tick().await;
+            let now = now_secs();
+            let heartbeat = Envelope {
+                id: format!("facilitator_heartbeat_{}", now),
+                message_type: EnvelopeType::Heartbeat,
+                room_id: room_id.clone(),
+                from: Sender {
+                    kind: SenderKind::Agent,
+                    id: "facilitator".to_string(),
+                },
+                ts: now,
+                payload: serde_json::to_value(HeartbeatPayload {
+                    ts: now,
+                    description: Some("Facilitator - coordinates tasks and assigns work to agents"
+                        .to_string()),
+                })
+                .unwrap(),
+            };
+            let topic = format!("rooms/{}/agents/facilitator/heartbeat", room_id);
+            let _ = client_clone
+                .publish(
+                    topic,
+                    QoS::AtLeastOnce,
+                    false,
+                    serde_json::to_vec(&heartbeat).unwrap(),
+                )
+                .await;
+        }
+    });
+
     // Main event loop
     loop {
         match event_loop.poll().await {
@@ -92,6 +128,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn handle_heartbeat(topic: &str, payload: &[u8], agent_registry: &mut AgentRegistry) {
     // Extract agent_id from: rooms/{roomId}/agents/{agentId}/heartbeat
     if let Some(agent_id) = topic.split('/').nth(3) {
+        // Don't register ourselves as an agent we can assign tasks to
+        if agent_id == "facilitator" {
+            return;
+        }
+        
         if let Ok(envelope) = serde_json::from_slice::<Envelope>(payload) {
             if envelope.message_type == EnvelopeType::Heartbeat {
                 if let Ok(heartbeat) =
@@ -124,16 +165,68 @@ async fn handle_user_message(
         mem.add(envelope.clone());
     }
 
-    // Only process 'say' messages from users for task assignment
-    if envelope.message_type != EnvelopeType::Say || envelope.from.kind != FromKind::User {
+    // Process 'say' messages from users OR final 'result' messages from OTHER agents (not facilitator)
+    let should_process = match (&envelope.message_type, &envelope.from.kind) {
+        (EnvelopeType::Say, FromKind::User) => true,
+        (EnvelopeType::Result, FromKind::Agent) => {
+            // Don't process our own messages!
+            if envelope.from.id == "facilitator" {
+                return;
+            }
+            // Only process final results, not ack/progress/etc
+            if let Ok(result) = serde_json::from_value::<ResultPayload>(envelope.payload.clone()) {
+                result.message_type == ResultMessageType::Result
+            } else {
+                false
+            }
+        }
+        _ => false,
+    };
+
+    if !should_process {
         return;
     }
 
-    let Ok(say) = serde_json::from_value::<SayPayload>(envelope.payload) else {
-        return;
-    };
+    // Log what we're processing
+    match &envelope.message_type {
+        EnvelopeType::Say => {
+            if let Ok(say) = serde_json::from_value::<SayPayload>(envelope.payload.clone()) {
+                info!("User: {}", say.text);
+            }
+        }
+        EnvelopeType::Result => {
+            if let Ok(result) = serde_json::from_value::<ResultPayload>(envelope.payload.clone()) {
+                info!("Agent final result received (task: {})", result.task_id);
 
-    info!("User: {}", say.text);
+                // Revoke mic grant for completed task
+                let now = now_secs();
+                let revoke_envelope = Envelope {
+                    id: format!("revoke_{}", now),
+                    message_type: EnvelopeType::MicRevoke,
+                    room_id: config.room_id.clone(),
+                    from: Sender {
+                        kind: SenderKind::Agent,
+                        id: "facilitator".to_string(),
+                    },
+                    ts: now,
+                    payload: serde_json::to_value(MicRevokePayload {
+                        task_id: result.task_id.clone(),
+                        agent_id: envelope.from.id.clone(),
+                    })
+                    .unwrap(),
+                };
+                let _ = client
+                    .publish(
+                        topics::control(&config.room_id),
+                        QoS::AtLeastOnce,
+                        false,
+                        serde_json::to_vec(&revoke_envelope).unwrap(),
+                    )
+                    .await;
+            }
+        }
+        _ => {}
+    }
 
     // Get active agents
     let active_agents = agent_registry.get_active_agents();
@@ -145,13 +238,42 @@ async fn handle_user_message(
     info!("Active agents: {}", active_agents.join(", "));
 
     // Get conversation context from memory
-    let mut context = {
+    let context = {
         let mem = memory.lock().await;
         mem.to_chat_messages()
     };
 
     // Get active agents with descriptions
     let agents_with_desc = agent_registry.get_active_agents_with_descriptions();
+
+    // Send ack immediately to show we're processing
+    let now = now_secs();
+    let ack_envelope = Envelope {
+        id: format!("facilitator_ack_{}", now),
+        message_type: EnvelopeType::Result,
+        room_id: config.room_id.clone(),
+        from: Sender {
+            kind: SenderKind::Agent,
+            id: "facilitator".to_string(),
+        },
+        ts: now,
+        payload: serde_json::to_value(ResultPayload {
+            task_id: format!("facilitator_task_{}", now),
+            message_type: ResultMessageType::Ack,
+            content: ResultContent::Ack(AckContent {
+                text: "Processing your request...".to_string(),
+            }),
+        })
+        .unwrap(),
+    };
+    let _ = client
+        .publish(
+            topics::public(&config.room_id),
+            QoS::AtLeastOnce,
+            false,
+            serde_json::to_vec(&ack_envelope).unwrap(),
+        )
+        .await;
 
     // Agentic loop: keep executing until no tool calls (task assignments) are made
     loop {
@@ -168,9 +290,8 @@ async fn handle_user_message(
             }
         };
 
-        // If no tool calls, check if there's a direct response to send
+        // If no tool calls, send direct response if there is one
         let Some(tool_calls) = response_msg.tool_calls.as_ref() else {
-            // No tool calls - send direct response if there is one
             if let Some(content) = &response_msg.content {
                 if !content.trim().is_empty() {
                     info!("→ Direct reply: {}", content);
@@ -185,7 +306,7 @@ async fn handle_user_message(
                         },
                         ts: now,
                         payload: serde_json::to_value(ResultPayload {
-                            task_id: "direct_reply".to_string(),
+                            task_id: "facilitator_response".to_string(),
                             message_type: ResultMessageType::Result,
                             content: ResultContent::Result(ResultOutcome {
                                 text: content.clone(),
@@ -201,9 +322,11 @@ async fn handle_user_message(
                             serde_json::to_vec(&envelope).unwrap(),
                         )
                         .await;
+                } else {
+                    info!("No tasks to assign - conversation continues naturally");
                 }
             }
-            return; // Done - no more actions needed
+            return;
         };
 
         // Process tool calls (task assignments)
@@ -319,22 +442,9 @@ async fn handle_user_message(
             }
         }
 
-        // Add the assistant message with tool calls to context
-        context.push(
-            serde_json::from_value(serde_json::json!({
-                "role": "assistant",
-                "content": response_msg.content,
-                "tool_calls": response_msg.tool_calls
-            }))
-            .unwrap(),
-        );
-
-        // Add all tool result messages to context
-        for tool_msg in tool_result_msgs {
-            context.push(serde_json::from_value(tool_msg).unwrap());
-        }
-
-        // Loop continues - facilitator can make additional assignments or provide final response
+        // Tasks assigned - exit the loop
+        // The facilitator will react again when agents post their results
+        return;
     }
 }
 

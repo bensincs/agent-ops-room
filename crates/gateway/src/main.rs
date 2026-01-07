@@ -110,6 +110,19 @@ fn handle_control_message(envelope: &Envelope, tracker: &mut MicGrantTracker) {
                 warn!("Failed to parse MicGrant payload");
             }
         }
+        EnvelopeType::MicRevoke => {
+            if let Ok(payload) =
+                serde_json::from_value::<common::MicRevokePayload>(envelope.payload.clone())
+            {
+                info!(
+                    "Mic revoke: agent={}, task={}",
+                    payload.agent_id, payload.task_id
+                );
+                tracker.revoke(&payload.agent_id, &payload.task_id);
+            } else {
+                warn!("Failed to parse MicRevoke payload");
+            }
+        }
         _ => {
             // Ignore other control messages
         }

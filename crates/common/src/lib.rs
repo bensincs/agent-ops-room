@@ -25,6 +25,6 @@ pub use llm::{
 #[cfg(feature = "llm")]
 pub use memory::MessageHistory;
 pub use message::{
-    Envelope, EnvelopeType, MicGrantPayload, Payload, RejectPayload, ResultMessageType,
-    ResultPayload, SayPayload, Sender, SenderKind, TaskPayload,
+    Envelope, EnvelopeType, MicGrantPayload, MicRevokePayload, Payload, RejectPayload,
+    ResultMessageType, ResultPayload, SayPayload, Sender, SenderKind, TaskPayload,
 };
