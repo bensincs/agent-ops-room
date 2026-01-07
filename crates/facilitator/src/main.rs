@@ -80,8 +80,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ts: now,
                 payload: serde_json::to_value(HeartbeatPayload {
                     ts: now,
-                    description: Some("Facilitator - coordinates tasks and assigns work to agents"
-                        .to_string()),
+                    description: Some(
+                        "Facilitator - coordinates tasks and assigns work to agents".to_string(),
+                    ),
                 })
                 .unwrap(),
             };
@@ -132,7 +133,7 @@ fn handle_heartbeat(topic: &str, payload: &[u8], agent_registry: &mut AgentRegis
         if agent_id == "facilitator" {
             return;
         }
-        
+
         if let Ok(envelope) = serde_json::from_slice::<Envelope>(payload) {
             if envelope.message_type == EnvelopeType::Heartbeat {
                 if let Ok(heartbeat) =
@@ -198,8 +199,36 @@ async fn handle_user_message(
             if let Ok(result) = serde_json::from_value::<ResultPayload>(envelope.payload.clone()) {
                 info!("Agent final result received (task: {})", result.task_id);
 
-                // Revoke mic grant for completed task
+                // Send ack immediately to show we're processing the agent's result
                 let now = now_secs();
+                let ack_envelope = Envelope {
+                    id: format!("ack_{}", now),
+                    message_type: EnvelopeType::Result,
+                    room_id: config.room_id.clone(),
+                    from: Sender {
+                        kind: SenderKind::Agent,
+                        id: "facilitator".to_string(),
+                    },
+                    ts: now,
+                    payload: serde_json::to_value(ResultPayload {
+                        task_id: format!("facilitator_ack_{}", now),
+                        message_type: ResultMessageType::Ack,
+                        content: ResultContent::Ack(AckContent {
+                            text: "Received agent result...".to_string(),
+                        }),
+                    })
+                    .unwrap(),
+                };
+                let _ = client
+                    .publish(
+                        topics::public(&config.room_id),
+                        QoS::AtLeastOnce,
+                        false,
+                        serde_json::to_vec(&ack_envelope).unwrap(),
+                    )
+                    .await;
+
+                // Revoke mic grant for completed task
                 let revoke_envelope = Envelope {
                     id: format!("revoke_{}", now),
                     message_type: EnvelopeType::MicRevoke,
@@ -223,6 +252,37 @@ async fn handle_user_message(
                         serde_json::to_vec(&revoke_envelope).unwrap(),
                     )
                     .await;
+
+                // Send empty result to signal completion
+                info!("→ Silent completion (agent task complete)");
+                let now = now_secs();
+                let result_envelope = Envelope {
+                    id: format!("result_agent_complete_{}", now),
+                    message_type: EnvelopeType::Result,
+                    room_id: config.room_id.clone(),
+                    from: Sender {
+                        kind: SenderKind::Agent,
+                        id: "facilitator".to_string(),
+                    },
+                    ts: now,
+                    payload: serde_json::to_value(ResultPayload {
+                        task_id: format!("facilitator_result_{}", now),
+                        message_type: ResultMessageType::Result,
+                        content: ResultContent::Result(ResultOutcome {
+                            text: "".to_string(),
+                        }),
+                    })
+                    .unwrap(),
+                };
+                let _ = client
+                    .publish(
+                        topics::public(&config.room_id),
+                        QoS::AtLeastOnce,
+                        false,
+                        serde_json::to_vec(&result_envelope).unwrap(),
+                    )
+                    .await;
+                return;
             }
         }
         _ => {}
@@ -290,42 +350,48 @@ async fn handle_user_message(
             }
         };
 
-        // If no tool calls, send direct response if there is one
+        // If no tool calls, send direct response (or empty result for state update)
         let Some(tool_calls) = response_msg.tool_calls.as_ref() else {
-            if let Some(content) = &response_msg.content {
-                if !content.trim().is_empty() {
-                    info!("→ Direct reply: {}", content);
-                    let now = now_secs();
-                    let envelope = Envelope {
-                        id: format!("facilitator_{}", now),
-                        message_type: EnvelopeType::Result,
-                        room_id: config.room_id.clone(),
-                        from: Sender {
-                            kind: SenderKind::Agent,
-                            id: "facilitator".to_string(),
-                        },
-                        ts: now,
-                        payload: serde_json::to_value(ResultPayload {
-                            task_id: "facilitator_response".to_string(),
-                            message_type: ResultMessageType::Result,
-                            content: ResultContent::Result(ResultOutcome {
-                                text: content.clone(),
-                            }),
-                        })
-                        .unwrap(),
-                    };
-                    let _ = client
-                        .publish(
-                            topics::public(&config.room_id),
-                            QoS::AtLeastOnce,
-                            false,
-                            serde_json::to_vec(&envelope).unwrap(),
-                        )
-                        .await;
-                } else {
-                    info!("No tasks to assign - conversation continues naturally");
-                }
+            let now = now_secs();
+            let text = response_msg
+                .content
+                .as_ref()
+                .map(|s| s.trim())
+                .unwrap_or("");
+
+            if !text.is_empty() {
+                info!("→ Direct reply: {}", text);
+            } else {
+                info!("→ Silent completion (no message needed)");
             }
+
+            // Always send a result (even if empty) so UI can update state
+            let envelope = Envelope {
+                id: format!("facilitator_{}", now),
+                message_type: EnvelopeType::Result,
+                room_id: config.room_id.clone(),
+                from: Sender {
+                    kind: SenderKind::Agent,
+                    id: "facilitator".to_string(),
+                },
+                ts: now,
+                payload: serde_json::to_value(ResultPayload {
+                    task_id: "facilitator_response".to_string(),
+                    message_type: ResultMessageType::Result,
+                    content: ResultContent::Result(ResultOutcome {
+                        text: text.to_string(),
+                    }),
+                })
+                .unwrap(),
+            };
+            let _ = client
+                .publish(
+                    topics::public(&config.room_id),
+                    QoS::AtLeastOnce,
+                    false,
+                    serde_json::to_vec(&envelope).unwrap(),
+                )
+                .await;
             return;
         };
 
@@ -442,8 +508,35 @@ async fn handle_user_message(
             }
         }
 
-        // Tasks assigned - exit the loop
-        // The facilitator will react again when agents post their results
+        // Tasks assigned - send empty result to signal completion of handoff
+        info!("Silent completion (task handoff)");
+        let now = now_secs();
+        let result_envelope = Envelope {
+            id: format!("result_handoff_{}", now),
+            message_type: EnvelopeType::Result,
+            room_id: config.room_id.clone(),
+            from: Sender {
+                kind: SenderKind::Agent,
+                id: "facilitator".to_string(),
+            },
+            ts: now,
+            payload: serde_json::to_value(ResultPayload {
+                task_id: format!("facilitator_handoff_{}", now),
+                message_type: ResultMessageType::Result,
+                content: ResultContent::Result(ResultOutcome {
+                    text: "".to_string(),
+                }),
+            })
+            .unwrap(),
+        };
+        let _ = client
+            .publish(
+                topics::public(&config.room_id),
+                QoS::AtLeastOnce,
+                false,
+                serde_json::to_vec(&result_envelope).unwrap(),
+            )
+            .await;
         return;
     }
 }

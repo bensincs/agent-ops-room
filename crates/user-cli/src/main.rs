@@ -155,9 +155,8 @@ impl App {
 
     fn remove_stale_agents(&mut self, timeout_secs: u64) {
         let now = now_secs();
-        self.agents.retain(|_, status| {
-            now - status.last_updated < timeout_secs
-        });
+        self.agents
+            .retain(|_, status| now - status.last_updated < timeout_secs);
     }
 }
 
@@ -215,10 +214,7 @@ async fn main() -> anyhow::Result<()> {
     client.subscribe(&heartbeat_topic, QoS::AtLeastOnce).await?;
 
     // Create app state
-    let app = Arc::new(Mutex::new(App::new(
-        room_id.clone(),
-        user_id.clone(),
-    )));
+    let app = Arc::new(Mutex::new(App::new(room_id.clone(), user_id.clone())));
     let app_clone = Arc::clone(&app);
 
     // Spawn MQTT event loop in background
@@ -416,7 +412,7 @@ fn render_agents_bar(f: &mut Frame, area: Rect, app: &App) {
 
 fn render_messages(f: &mut Frame, area: Rect, app: &App) {
     let mut lines: Vec<Line> = Vec::new();
-    
+
     for msg in &app.messages {
         let time_str = msg.timestamp.format("%H:%M:%S").to_string();
 
@@ -447,14 +443,11 @@ fn render_messages(f: &mut Frame, area: Rect, app: &App) {
             Span::raw(" "),
             Span::styled(&msg.msg_type, msg_type_style),
         ];
-        
+
         lines.push(Line::from(header_spans));
-        
+
         // Add content on next line with indentation for wrapping
-        lines.push(Line::from(vec![
-            Span::raw("  "),
-            Span::raw(&msg.content),
-        ]));
+        lines.push(Line::from(vec![Span::raw("  "), Span::raw(&msg.content)]));
     }
 
     let title = if app.scroll_offset > 0 {
@@ -467,7 +460,7 @@ fn render_messages(f: &mut Frame, area: Rect, app: &App) {
         .block(Block::default().borders(Borders::ALL).title(title))
         .wrap(ratatui::widgets::Wrap { trim: false })
         .scroll((app.scroll_offset as u16, 0));
-    
+
     f.render_widget(paragraph, area);
 }
 
@@ -546,7 +539,7 @@ async fn process_heartbeat(envelope: &Envelope, app: &Arc<Mutex<App>>) {
         {
             let agent_id = envelope.from.id.clone();
             let mut app_lock = app.lock().await;
-            
+
             // Update or create agent entry
             app_lock
                 .agents
@@ -588,11 +581,14 @@ async fn process_message(envelope: Envelope, app: &Arc<Mutex<App>>) {
                         "ack" => {
                             let mut app_lock = app.lock().await;
                             // Ensure agent exists (in case heartbeat hasn't arrived yet)
-                            app_lock.agents.entry(sender_id.clone()).or_insert(AgentStatus {
-                                state: AgentState::Idle,
-                                last_updated: envelope.ts,
-                            });
-                            
+                            app_lock
+                                .agents
+                                .entry(sender_id.clone())
+                                .or_insert(AgentStatus {
+                                    state: AgentState::Idle,
+                                    last_updated: envelope.ts,
+                                });
+
                             app_lock.update_agent(
                                 sender_id.clone(),
                                 AgentState::Working {
@@ -604,11 +600,14 @@ async fn process_message(envelope: Envelope, app: &Arc<Mutex<App>>) {
                         "result" => {
                             let mut app_lock = app.lock().await;
                             // Ensure agent exists
-                            app_lock.agents.entry(sender_id.clone()).or_insert(AgentStatus {
-                                state: AgentState::Idle,
-                                last_updated: envelope.ts,
-                            });
-                            
+                            app_lock
+                                .agents
+                                .entry(sender_id.clone())
+                                .or_insert(AgentStatus {
+                                    state: AgentState::Idle,
+                                    last_updated: envelope.ts,
+                                });
+
                             app_lock.update_agent(
                                 sender_id.clone(),
                                 AgentState::Complete {
@@ -622,7 +621,7 @@ async fn process_message(envelope: Envelope, app: &Arc<Mutex<App>>) {
                             let sender_clone = sender_id.clone();
                             let app_clone: Arc<Mutex<App>> = Arc::clone(app);
                             tokio::spawn(async move {
-                                tokio::time::sleep(Duration::from_secs(5)).await;
+                                tokio::time::sleep(Duration::from_millis(500)).await;
                                 let mut app_lock = app_clone.lock().await;
                                 if let Some(status) = app_lock.agents.get(&sender_clone) {
                                     if matches!(status.state, AgentState::Complete { .. }) {
@@ -709,11 +708,11 @@ async fn show_welcome_screen(
     loop {
         terminal.draw(|f| {
             let size = f.area();
-            
+
             // Create centered box
             let vertical_margin = size.height / 4;
             let horizontal_margin = size.width / 4;
-            
+
             let outer_area = Rect {
                 x: horizontal_margin,
                 y: vertical_margin,
@@ -726,16 +725,20 @@ async fn show_welcome_screen(
                 .direction(Direction::Vertical)
                 .margin(2)
                 .constraints([
-                    Constraint::Length(3),  // Title
-                    Constraint::Length(3),  // Room input
-                    Constraint::Length(3),  // User input
-                    Constraint::Length(2),  // Instructions
+                    Constraint::Length(3), // Title
+                    Constraint::Length(3), // Room input
+                    Constraint::Length(3), // User input
+                    Constraint::Length(2), // Instructions
                 ])
                 .split(outer_area);
 
             // Title
             let title = Paragraph::new("🚀 Agent Ops Room")
-                .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+                .style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )
                 .alignment(ratatui::layout::Alignment::Center);
             f.render_widget(title, chunks[0]);
 
@@ -778,9 +781,10 @@ async fn show_welcome_screen(
             f.render_widget(user_para, chunks[2]);
 
             // Instructions
-            let instructions = Paragraph::new("Tab: Switch fields | Enter: Join room | Ctrl+C: Quit")
-                .style(Style::default().fg(Color::DarkGray))
-                .alignment(ratatui::layout::Alignment::Center);
+            let instructions =
+                Paragraph::new("Tab: Switch fields | Enter: Join room | Ctrl+C: Quit")
+                    .style(Style::default().fg(Color::DarkGray))
+                    .alignment(ratatui::layout::Alignment::Center);
             f.render_widget(instructions, chunks[3]);
 
             // Show cursor in active field
