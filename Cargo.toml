@@ -16,7 +16,7 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 # Async runtime - used by all binaries for #[tokio::main] and tokio::signal::ctrl_c()
-tokio = { version = "1.35", features = ["macros", "signal", "rt-multi-thread"] }
+tokio = { version = "1.35", features = ["macros", "signal", "rt-multi-thread", "sync"] }
 
 # Logging - used by all binaries for structured logging
 tracing = "0.1"

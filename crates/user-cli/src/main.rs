@@ -20,7 +20,6 @@ use ratatui::{
 use rumqttc::{AsyncClient, Event as MqttEvent, EventLoop, MqttOptions, Packet, QoS};
 use std::collections::HashMap;
 use std::io;
-use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -89,15 +88,19 @@ impl App {
             input_cursor: 0,
             messages: Vec::new(),
             agents: HashMap::new(),
-            scroll_offset: 0,
+            scroll_offset: usize::MAX, // Start at bottom
             should_quit: false,
         }
     }
 
     fn add_message(&mut self, msg: Message) {
+        // Check if we're at the bottom before adding
+        let at_bottom = self.scroll_offset == usize::MAX || self.scroll_offset >= 9999;
         self.messages.push(msg);
-        // Auto-scroll to bottom when new message arrives
-        self.scroll_offset = 0;
+        // If we were at bottom, stay at bottom
+        if at_bottom {
+            self.scroll_offset = usize::MAX;
+        }
     }
 
     fn update_agent(&mut self, agent_id: String, state: AgentState, ts: u64) {
@@ -146,11 +149,11 @@ impl App {
     }
 
     fn scroll_up(&mut self) {
-        self.scroll_offset = self.scroll_offset.saturating_add(1);
+        self.scroll_offset = self.scroll_offset.saturating_sub(1);
     }
 
     fn scroll_down(&mut self) {
-        self.scroll_offset = self.scroll_offset.saturating_sub(1);
+        self.scroll_offset = self.scroll_offset.saturating_add(1);
     }
 
     fn remove_stale_agents(&mut self, timeout_secs: u64) {
@@ -450,8 +453,13 @@ fn render_messages(f: &mut Frame, area: Rect, app: &App) {
         lines.push(Line::from(vec![Span::raw("  "), Span::raw(&msg.content)]));
     }
 
-    let title = if app.scroll_offset > 0 {
-        format!("Messages (↑{})", app.scroll_offset)
+    // Calculate max scroll (total lines - visible lines)
+    let total_lines = lines.len();
+    let visible_lines = area.height.saturating_sub(2) as usize; // Subtract borders
+    let max_scroll = total_lines.saturating_sub(visible_lines);
+    
+    let title = if app.scroll_offset > 0 && app.scroll_offset < max_scroll {
+        format!("Messages (scrolled)")
     } else {
         "Messages".to_string()
     };
@@ -459,7 +467,7 @@ fn render_messages(f: &mut Frame, area: Rect, app: &App) {
     let paragraph = Paragraph::new(lines)
         .block(Block::default().borders(Borders::ALL).title(title))
         .wrap(ratatui::widgets::Wrap { trim: false })
-        .scroll((app.scroll_offset as u16, 0));
+        .scroll((app.scroll_offset.min(max_scroll) as u16, 0));
 
     f.render_widget(paragraph, area);
 }
@@ -535,7 +543,7 @@ async fn handle_mqtt_events(eventloop: &mut EventLoop, app: Arc<Mutex<App>>) {
 
 async fn process_heartbeat(envelope: &Envelope, app: &Arc<Mutex<App>>) {
     if envelope.message_type == EnvelopeType::Heartbeat {
-        if let Ok(heartbeat) = serde_json::from_value::<HeartbeatPayload>(envelope.payload.clone())
+        if serde_json::from_value::<HeartbeatPayload>(envelope.payload.clone()).is_ok()
         {
             let agent_id = envelope.from.id.clone();
             let mut app_lock = app.lock().await;
