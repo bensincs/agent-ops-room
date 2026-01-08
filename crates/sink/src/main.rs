@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     client.subscribe(&public_topic, QoS::AtLeastOnce).await?;
 
     info!("Subscribed to: {}", public_topic);
-    
+
     // Spawn heartbeat task
     let client_clone = client.clone();
     let room_id = config.room_id.clone();
@@ -67,11 +67,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             interval.tick().await;
             counter += 1;
             let now = now_secs();
-            
+
             let payload = if counter % 3 == 0 {
                 HeartbeatPayload {
                     ts: now,
-                    description: Some("Sink - stores messages to file for archival and analysis".to_string()),
+                    description: Some(
+                        "Sink - stores messages to file for archival and analysis".to_string(),
+                    ),
                     can_accept_tasks: false,
                 }
             } else {
@@ -81,7 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     can_accept_tasks: false,
                 }
             };
-            
+
             let heartbeat = Envelope {
                 id: format!("sink_heartbeat_{}", counter),
                 message_type: EnvelopeType::Heartbeat,
@@ -104,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .await;
         }
     });
-    
+
     info!("Sink running - writing messages to {}", config.output_file);
 
     // Main event loop

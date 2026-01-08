@@ -7,8 +7,11 @@ mod config;
 mod llm;
 
 use clap::Parser;
-use common::{topics, Envelope, EnvelopeType, MessageHistory, ResultPayload, Sender, SenderKind, SummaryPayload};
 use common::message::HeartbeatPayload;
+use common::{
+    topics, Envelope, EnvelopeType, MessageHistory, ResultPayload, Sender, SenderKind,
+    SummaryPayload,
+};
 use config::SummarizerConfig;
 use llm::SummarizerLlm;
 use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS};
@@ -61,11 +64,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             interval.tick().await;
             counter += 1;
             let now = now_secs();
-            
+
             let payload = if counter % 3 == 0 {
                 HeartbeatPayload {
                     ts: now,
-                    description: Some("Summarizer - generates conversation summaries for context management".to_string()),
+                    description: Some(
+                        "Summarizer - generates conversation summaries for context management"
+                            .to_string(),
+                    ),
                     can_accept_tasks: false,
                 }
             } else {
@@ -75,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     can_accept_tasks: false,
                 }
             };
-            
+
             let heartbeat = Envelope {
                 id: format!("summarizer_heartbeat_{}", counter),
                 message_type: EnvelopeType::Heartbeat,

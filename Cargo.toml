@@ -1,10 +1,13 @@
 [workspace]
 members = [
-    "crates/ui-bridge",
-    "crates/facilitator",
+    "crates/common",
     "crates/gateway",
+    "crates/facilitator",
     "crates/specialist-agent",
-    "crates/common", "crates/user-cli", "crates/summarizer", "crates/sink",
+    "crates/summarizer",
+    "crates/user-cli",
+    "crates/sink",
+    "crates/replay",
 ]
 resolver = "2"
 

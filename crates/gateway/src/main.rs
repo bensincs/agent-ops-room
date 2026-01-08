@@ -74,11 +74,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_secs();
-            
+
             let payload = if counter % 3 == 0 {
                 HeartbeatPayload {
                     ts: now,
-                    description: Some("Gateway - validates and moderates agent messages".to_string()),
+                    description: Some(
+                        "Gateway - validates and moderates agent messages".to_string(),
+                    ),
                     can_accept_tasks: false,
                 }
             } else {
@@ -88,7 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     can_accept_tasks: false,
                 }
             };
-            
+
             let heartbeat = Envelope {
                 id: format!("gateway_heartbeat_{}", counter),
                 message_type: EnvelopeType::Heartbeat,
