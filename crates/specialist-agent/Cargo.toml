@@ -5,7 +5,7 @@ edition.workspace = true
 
 [dependencies]
 # Async runtime for main and signal handling
-tokio.workspace = true
+tokio = { workspace = true, features = ["process"] }
 
 # Logging
 tracing.workspace = true

@@ -2,8 +2,9 @@ use chrono::{DateTime, Local};
 use clap::Parser;
 use common::message::{
     Envelope, EnvelopeType, HeartbeatPayload, ResultContent, ResultPayload, SayPayload, Sender,
-    SenderKind,
+    SenderKind, SummaryPayload,
 };
+use common::topics;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
     execute,
@@ -76,7 +77,9 @@ struct App {
     messages: Vec<Message>,
     agents: HashMap<String, AgentStatus>,
     scroll_offset: usize,
+    show_findings: bool,
     should_quit: bool,
+    current_summary: Option<SummaryPayload>,
 }
 
 impl App {
@@ -88,19 +91,15 @@ impl App {
             input_cursor: 0,
             messages: Vec::new(),
             agents: HashMap::new(),
-            scroll_offset: usize::MAX, // Start at bottom
+            scroll_offset: 0,
+            show_findings: false,
             should_quit: false,
+            current_summary: None,
         }
     }
 
     fn add_message(&mut self, msg: Message) {
-        // Check if we're at the bottom before adding
-        let at_bottom = self.scroll_offset == usize::MAX || self.scroll_offset >= 9999;
         self.messages.push(msg);
-        // If we were at bottom, stay at bottom
-        if at_bottom {
-            self.scroll_offset = usize::MAX;
-        }
     }
 
     fn update_agent(&mut self, agent_id: String, state: AgentState, ts: u64) {
@@ -156,10 +155,22 @@ impl App {
         self.scroll_offset = self.scroll_offset.saturating_add(1);
     }
 
+    fn scroll_to_top(&mut self) {
+        self.scroll_offset = 0;
+    }
+
+    fn scroll_to_bottom(&mut self) {
+        self.scroll_offset = usize::MAX; // Will be clamped in render
+    }
+
     fn remove_stale_agents(&mut self, timeout_secs: u64) {
         let now = now_secs();
         self.agents
             .retain(|_, status| now - status.last_updated < timeout_secs);
+    }
+
+    fn toggle_findings(&mut self) {
+        self.show_findings = !self.show_findings;
     }
 }
 
@@ -211,10 +222,12 @@ async fn main() -> anyhow::Result<()> {
     let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
     let public_topic = format!("rooms/{}/public", room_id);
     let heartbeat_topic = format!("rooms/{}/agents/+/heartbeat", room_id);
+    let summary_topic = topics::summary(&room_id);
 
-    // Subscribe to public channel and agent heartbeats
+    // Subscribe to public channel, agent heartbeats, and summaries
     client.subscribe(&public_topic, QoS::AtLeastOnce).await?;
     client.subscribe(&heartbeat_topic, QoS::AtLeastOnce).await?;
+    client.subscribe(&summary_topic, QoS::AtLeastOnce).await?;
 
     // Create app state
     let app = Arc::new(Mutex::new(App::new(room_id.clone(), user_id.clone())));
@@ -281,6 +294,9 @@ async fn run_app(
                     KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                         app_lock.should_quit = true;
                     }
+                    KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        app_lock.toggle_findings();
+                    }
                     KeyCode::Enter => {
                         let msg = app_lock.input.clone();
                         if !msg.is_empty() {
@@ -302,6 +318,12 @@ async fn run_app(
                     }
                     KeyCode::Right => {
                         app_lock.move_cursor_right();
+                    }
+                    KeyCode::Home if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        app_lock.scroll_to_top();
+                    }
+                    KeyCode::End if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        app_lock.scroll_to_bottom();
                     }
                     KeyCode::Home => {
                         app_lock.input_cursor = 0;
@@ -325,6 +347,26 @@ async fn run_app(
                             app_lock.scroll_down();
                         }
                     }
+                    KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        // Ctrl+G: Jump to top
+                        app_lock.scroll_to_top();
+                    }
+                    KeyCode::Char('G') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                        // Shift+G: Jump to bottom
+                        app_lock.scroll_to_bottom();
+                    }
+                    KeyCode::Char('g') if !app_lock.input.is_empty() => {
+                        // If typing, insert 'g'
+                        app_lock.enter_char('g');
+                    }
+                    KeyCode::Char('g') => {
+                        // Jump to top (vim-style)
+                        app_lock.scroll_to_top();
+                    }
+                    KeyCode::Char('G') => {
+                        // Jump to bottom (vim-style)
+                        app_lock.scroll_to_bottom();
+                    }
                     _ => {}
                 }
 
@@ -339,16 +381,32 @@ async fn run_app(
 }
 
 fn ui(f: &mut Frame, app: &App) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3), // Header
-            Constraint::Length(3), // Agents status bar
-            Constraint::Min(0),    // Messages
-            Constraint::Length(3), // Input
-            Constraint::Length(1), // Footer
-        ])
-        .split(f.area());
+    let has_summary = app.current_summary.is_some();
+    
+    let chunks = if has_summary {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3), // Header
+                Constraint::Length(3), // Agents status bar
+                Constraint::Length(10), // Summary panel (increased from 6)
+                Constraint::Min(0),    // Messages
+                Constraint::Length(3), // Input
+                Constraint::Length(1), // Footer
+            ])
+            .split(f.area())
+    } else {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3), // Header
+                Constraint::Length(3), // Agents status bar
+                Constraint::Min(0),    // Messages
+                Constraint::Length(3), // Input
+                Constraint::Length(1), // Footer
+            ])
+            .split(f.area())
+    };
 
     // Header
     render_header(f, chunks[0], app);
@@ -356,14 +414,49 @@ fn ui(f: &mut Frame, app: &App) {
     // Agents status bar
     render_agents_bar(f, chunks[1], app);
 
-    // Messages
-    render_messages(f, chunks[2], app);
+    if has_summary {
+        // Summary panel
+        render_summary_panel(f, chunks[2], app);
+        // Messages
+        render_messages(f, chunks[3], app);
+        // Input
+        render_input(f, chunks[4], app);
+        // Footer
+        render_footer(f, chunks[5], app);
+    } else {
+        // Messages
+        render_messages(f, chunks[2], app);
+        // Input
+        render_input(f, chunks[3], app);
+        // Footer
+        render_footer(f, chunks[4], app);
+    }
+}
 
-    // Input
-    render_input(f, chunks[3], app);
-
-    // Footer
-    render_footer(f, chunks[4]);
+fn render_summary_panel(f: &mut Frame, area: Rect, app: &App) {
+    if let Some(summary) = &app.current_summary {
+        let covers_until = DateTime::from_timestamp(summary.covers_until_ts as i64, 0)
+            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        
+        let title = format!("📊 Summary ({} msgs until {})", summary.message_count, covers_until);
+        
+        let block = Block::default()
+            .title(title)
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Yellow))
+            .style(Style::default().bg(Color::Black));
+        
+        let inner = block.inner(area);
+        f.render_widget(block, area);
+        
+        // Render summary text - no truncation, let it wrap
+        let paragraph = Paragraph::new(summary.summary_text.as_str())
+            .style(Style::default().fg(Color::White))
+            .wrap(ratatui::widgets::Wrap { trim: true });
+        
+        f.render_widget(paragraph, inner);
+    }
 }
 
 fn render_header(f: &mut Frame, area: Rect, app: &App) {
@@ -408,9 +501,74 @@ fn render_agents_bar(f: &mut Frame, area: Rect, app: &App) {
         result
     };
 
-    let agents_bar = Paragraph::new(Line::from(spans))
+        let agents_bar = Paragraph::new(Line::from(spans))
         .block(Block::default().borders(Borders::ALL).title("Agents"));
     f.render_widget(agents_bar, area);
+}
+
+/// Render markdown-like content with basic formatting
+fn render_markdown_content(content: &str, base_style: Style) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    
+    // Simple markdown parsing for code blocks and bold
+    let mut in_code_block = false;
+    
+    for line in content.lines() {
+        if line.trim().starts_with("```") {
+            in_code_block = !in_code_block;
+            continue;
+        }
+        
+        if in_code_block {
+            // Render code with cyan color
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(
+                    line.to_string(),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::DIM),
+                ),
+            ]));
+        } else {
+            // Parse bold (**text**)
+            let mut spans = vec![Span::raw("  ")];
+            let mut current = String::new();
+            let mut is_bold = false;
+            let mut chars = line.chars().peekable();
+            
+            while let Some(ch) = chars.next() {
+                if ch == '*' && chars.peek() == Some(&'*') {
+                    chars.next(); // consume second *
+                    if !current.is_empty() {
+                        let style = if is_bold {
+                            base_style.add_modifier(Modifier::BOLD)
+                        } else {
+                            base_style
+                        };
+                        spans.push(Span::styled(current.clone(), style));
+                        current.clear();
+                    }
+                    is_bold = !is_bold;
+                } else {
+                    current.push(ch);
+                }
+            }
+            
+            if !current.is_empty() {
+                let style = if is_bold {
+                    base_style.add_modifier(Modifier::BOLD)
+                } else {
+                    base_style
+                };
+                spans.push(Span::styled(current, style));
+            }
+            
+            lines.push(Line::from(spans));
+        }
+    }
+    
+    lines
 }
 
 fn render_messages(f: &mut Frame, area: Rect, app: &App) {
@@ -449,25 +607,45 @@ fn render_messages(f: &mut Frame, area: Rect, app: &App) {
 
         lines.push(Line::from(header_spans));
 
-        // Add content on next line with indentation for wrapping
-        lines.push(Line::from(vec![Span::raw("  "), Span::raw(&msg.content)]));
+        // Redact finding content if show_findings is false
+        let content = if msg.msg_type.to_lowercase().contains("finding") && !app.show_findings {
+            "[REDACTED - Press Ctrl+F to view findings]".to_string()
+        } else {
+            msg.content.clone()
+        };
+
+        // Add content with markdown rendering
+        let content_style = if msg.msg_type.to_lowercase().contains("finding") && !app.show_findings
+        {
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC)
+        } else {
+            Style::default()
+        };
+
+        // Parse and render markdown-like content
+        let content_lines = render_markdown_content(&content, content_style);
+        for line in content_lines {
+            lines.push(line);
+        }
     }
 
     // Calculate max scroll (total lines - visible lines)
     let total_lines = lines.len();
     let visible_lines = area.height.saturating_sub(2) as usize; // Subtract borders
     let max_scroll = total_lines.saturating_sub(visible_lines);
-    
-    let title = if app.scroll_offset > 0 && app.scroll_offset < max_scroll {
-        format!("Messages (scrolled)")
+
+    let actual_scroll = app.scroll_offset.min(max_scroll);
+    let title = if total_lines > visible_lines {
+        format!("Messages (line {}/{}, {} msgs)", actual_scroll + 1, total_lines, app.messages.len())
     } else {
-        "Messages".to_string()
+        format!("Messages ({} msgs)", app.messages.len())
     };
 
     let paragraph = Paragraph::new(lines)
         .block(Block::default().borders(Borders::ALL).title(title))
-        .wrap(ratatui::widgets::Wrap { trim: false })
-        .scroll((app.scroll_offset.min(max_scroll) as u16, 0));
+        .scroll((actual_scroll as u16, 0));
 
     f.render_widget(paragraph, area);
 }
@@ -482,8 +660,12 @@ fn render_input(f: &mut Frame, area: Rect, app: &App) {
     f.set_cursor_position((area.x + app.input_cursor as u16 + 1, area.y + 1));
 }
 
-fn render_footer(f: &mut Frame, area: Rect) {
-    let footer_text = " Enter: Send | ↑↓: Scroll | Ctrl+C/D: Quit ";
+fn render_footer(f: &mut Frame, area: Rect, app: &App) {
+    let findings_status = if app.show_findings { "ON" } else { "OFF" };
+    let footer_text = format!(
+        " Enter: Send | ↑↓: Scroll | Ctrl+Home/g: Top | Ctrl+End/G: Bottom | Ctrl+F: Findings {} | Ctrl+C/D: Quit ",
+        findings_status
+    );
     let footer = Paragraph::new(footer_text)
         .style(Style::default().fg(Color::DarkGray))
         .alignment(ratatui::layout::Alignment::Center);
@@ -526,6 +708,8 @@ async fn handle_mqtt_events(eventloop: &mut EventLoop, app: Arc<Mutex<App>>) {
                     if let Ok(envelope) = serde_json::from_str::<Envelope>(&text) {
                         if p.topic.ends_with("/heartbeat") {
                             process_heartbeat(&envelope, &app).await;
+                        } else if p.topic.ends_with("/summary") {
+                            process_message(envelope, &app).await;
                         } else {
                             process_message(envelope, &app).await;
                         }
@@ -543,8 +727,7 @@ async fn handle_mqtt_events(eventloop: &mut EventLoop, app: Arc<Mutex<App>>) {
 
 async fn process_heartbeat(envelope: &Envelope, app: &Arc<Mutex<App>>) {
     if envelope.message_type == EnvelopeType::Heartbeat {
-        if serde_json::from_value::<HeartbeatPayload>(envelope.payload.clone()).is_ok()
-        {
+        if serde_json::from_value::<HeartbeatPayload>(envelope.payload.clone()).is_ok() {
             let agent_id = envelope.from.id.clone();
             let mut app_lock = app.lock().await;
 
@@ -578,6 +761,16 @@ async fn process_message(envelope: Envelope, app: &Arc<Mutex<App>>) {
             } else {
                 ("Say".to_string(), "[invalid]".to_string())
             }
+        }
+        EnvelopeType::Summary => {
+            if let Ok(summary) = serde_json::from_value::<SummaryPayload>(envelope.payload.clone()) {
+                // Update the current summary in app state
+                let mut app_lock = app.lock().await;
+                app_lock.current_summary = Some(summary.clone());
+                drop(app_lock);
+            }
+            // Don't add summary to message stream - it will be shown in dedicated panel
+            return;
         }
         EnvelopeType::Result => {
             if let Ok(result) = serde_json::from_value::<ResultPayload>(envelope.payload.clone()) {

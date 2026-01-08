@@ -26,5 +26,5 @@ pub use llm::{
 pub use memory::MessageHistory;
 pub use message::{
     Envelope, EnvelopeType, MicGrantPayload, MicRevokePayload, Payload, RejectPayload,
-    ResultMessageType, ResultPayload, SayPayload, Sender, SenderKind, TaskPayload,
+    ResultMessageType, ResultPayload, SayPayload, Sender, SenderKind, SummaryPayload, TaskPayload,
 };

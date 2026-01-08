@@ -18,14 +18,14 @@ use common::message::{
     AckContent, Envelope, EnvelopeType, FindingContent, HeartbeatPayload, ResultContent,
     ResultMessageType, ResultOutcome, ResultPayload, Sender, SenderKind, TaskPayload,
 };
-use common::{topics, ChatMessage, MessageHistory, ResponseMessage};
+use common::{topics, MessageHistory};
 use config::AgentConfig;
 use llm::SpecialistLlm;
 use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::sync::Mutex;
-use tracing::{debug, error, info, warn};
+use tokio::process::Command;
+use tracing::{debug, error, info};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -33,21 +33,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = Arc::new(AgentConfig::parse());
 
-    info!("Math Tutor Agent starting...");
+    info!("Command Execution Agent starting...");
     info!("  Room ID: {}", config.room_id);
     info!("  MQTT: {}:{}", config.mqtt_host, config.mqtt_port);
     info!("  LLM: {}", config.openai_model);
     info!("  Agent ID: {}", config.agent_id);
 
-    // Initialize LLM client with domain-specific system prompt
-    let system_prompt = "You are a helpful math tutor. Solve mathematical problems clearly and explain your reasoning step by step. Be concise but thorough.
+    // Initialize LLM client with command execution capability
+    let system_prompt = "You are a command-line execution assistant. You can run shell commands using the run_command tool and return their output to the user.
 
-IMPORTANT: When the user asks you to pick a random number, think of a number, or choose a number, you MUST call the secretly_pick_number tool. Do not just say you picked a number - actually call the function.
+When a user asks you to run a command, check something on the system, or perform any task that requires shell access:
+1. Call the run_command tool with the appropriate bash/shell command
+2. Wait for the output
+3. Present the results clearly to the user
 
-Example:
-- User: \"Pick a number between 1 and 100\"
-- You: Call secretly_pick_number with min=1, max=100
-- Then respond: \"I've secretly picked a number between 1 and 100!\"".to_string();
+Be helpful and explain what commands you're running and why.".to_string();
     let llm_client = Arc::new(SpecialistLlm::new(
         config.openai_api_key.clone(),
         config.openai_model.clone(),
@@ -79,7 +79,9 @@ Example:
     info!("  {}", inbox_topic);
 
     // Initialize conversation memory
-    let memory = Arc::new(Mutex::new(MessageHistory::new(config.max_memory_messages)));
+    let memory = Arc::new(tokio::sync::Mutex::new(MessageHistory::new(
+        config.max_memory_messages,
+    )));
 
     // Specific Initializers
     let heartbeat_client = client.clone();
@@ -89,7 +91,7 @@ Example:
         send_heartbeats(heartbeat_client, &heartbeat_room_id, &heartbeat_agent_id).await;
     });
 
-    info!("Math Tutor Agent running");
+    info!("Command Execution Agent running");
 
     // Main event loop
     loop {
@@ -112,7 +114,7 @@ Example:
     }
 }
 
-async fn handle_public_message(payload: &[u8], memory: &Arc<Mutex<MessageHistory>>) {
+async fn handle_public_message(payload: &[u8], memory: &Arc<tokio::sync::Mutex<MessageHistory>>) {
     if let Ok(envelope) = serde_json::from_slice::<Envelope>(payload) {
         let mut mem = memory.lock().await;
         mem.add(envelope);
@@ -124,7 +126,7 @@ async fn handle_inbox_message(
     client: &AsyncClient,
     config: &AgentConfig,
     llm_client: &SpecialistLlm,
-    memory: &Arc<Mutex<MessageHistory>>,
+    memory: &Arc<tokio::sync::Mutex<MessageHistory>>,
 ) {
     let Ok(envelope) = serde_json::from_slice::<Envelope>(payload) else {
         return;
@@ -195,51 +197,88 @@ async fn handle_inbox_message(
         for tool_call in tool_calls {
             info!("Processing tool call: {}", tool_call.function.name);
 
-            if tool_call.function.name == "secretly_pick_number" {
+            if tool_call.function.name == "run_command" {
                 // Parse arguments
                 let args: serde_json::Value =
                     serde_json::from_str(&tool_call.function.arguments).unwrap_or_default();
 
-                if let (Some(min), Some(max)) = (
-                    args.get("min").and_then(|v| v.as_f64()),
-                    args.get("max").and_then(|v| v.as_f64()),
-                ) {
-                    // Pick a random number
-                    use rand::Rng;
-                    let mut rng = rand::thread_rng();
-                    let secret_number = rng.gen_range(min as i32..=max as i32);
+                if let Some(command_str) = args.get("command").and_then(|v| v.as_str()) {
+                    info!("🔧 Executing command: {}", command_str);
 
-                    info!("🎲 Secretly picked number: {}", secret_number);
-
-                    // Send the secret number as a Finding (internal thinking)
+                    // Send finding with command being executed
                     send_result(
                         client,
                         config,
                         &task_payload.task_id,
                         ResultMessageType::Finding,
                         ResultContent::Finding(FindingContent {
-                            text: Some(format!("🎲 Secretly picked number: {}", secret_number)),
+                            text: Some(format!("🔧 Executing: {}", command_str)),
                             bullets: None,
                         }),
                     )
                     .await;
 
-                    // Create tool result message with proper tool_call_id
+                    // Execute the command using zsh
+                    let output = Command::new("zsh")
+                        .arg("-c")
+                        .arg(command_str)
+                        .output()
+                        .await;
+
+                    let tool_result = match output {
+                        Ok(output) => {
+                            let stdout = String::from_utf8_lossy(&output.stdout);
+                            let stderr = String::from_utf8_lossy(&output.stderr);
+                            let exit_code = output.status.code().unwrap_or(-1);
+
+                            info!("Command exit code: {}", exit_code);
+
+                            // Send finding with execution details
+                            send_result(
+                                client,
+                                config,
+                                &task_payload.task_id,
+                                ResultMessageType::Finding,
+                                ResultContent::Finding(FindingContent {
+                                    text: Some(format!("Exit code: {}", exit_code)),
+                                    bullets: None,
+                                }),
+                            )
+                            .await;
+
+                            // Format output as markdown for the LLM
+                            let mut result_parts = Vec::new();
+                            result_parts.push(format!("**Exit Code:** {}", exit_code));
+
+                            if !stdout.is_empty() {
+                                result_parts.push(format!("**Output:**\n```\n{}\n```", stdout.trim()));
+                            }
+
+                            if !stderr.is_empty() {
+                                result_parts.push(format!("**Errors:**\n```\n{}\n```", stderr.trim()));
+                            }
+
+                            result_parts.join("\n\n")
+                        }
+                        Err(e) => {
+                            error!("Failed to execute command: {}", e);
+                            format!("**Error:** {}", e)
+                        }
+                    };
+
                     tool_result_msgs.push(serde_json::json!({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
-                        "content": format!("Successfully picked number: {}", secret_number)
+                        "content": tool_result
                     }));
                 } else {
-                    warn!("Invalid arguments for secretly_pick_number");
                     tool_result_msgs.push(serde_json::json!({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
-                        "content": "Error: invalid min/max arguments"
+                        "content": "Error: missing 'command' argument"
                     }));
                 }
             } else {
-                warn!("Unknown tool: {}", tool_call.function.name);
                 tool_result_msgs.push(serde_json::json!({
                     "role": "tool",
                     "tool_call_id": tool_call.id,
@@ -321,7 +360,7 @@ async fn send_result(
 
 async fn send_heartbeats(client: AsyncClient, room_id: &str, agent_id: &str) {
     let mut counter = 0u64;
-    let description = "Specialized in mathematical calculations, solving equations, and numerical analysis. Can help with arithmetic, algebra, calculus, and explaining mathematical concepts.";
+    let description = "Command execution agent. Can run shell commands (bash/zsh) and return their output. Ask me to check system status, run scripts, or execute any command-line operations.";
 
     loop {
         counter += 1;

@@ -54,6 +54,9 @@ rooms/{roomId}/agents/{agentId}/heartbeat
 
 rooms/{roomId}/agents/{agentId}/work
   └─ Private agent scratch, tool output, memory
+
+rooms/{roomId}/summary
+  └─ Conversation summaries (periodic condensed context)
 ```
 
 ---
@@ -261,6 +264,51 @@ Interpretation:
 
 ---
 
+### 5.8 `summary`
+
+**Purpose:** Provide condensed conversation context for long-running rooms
+**Who:** Summarizer (or Facilitator)
+**Topic:** `rooms/{roomId}/summary`
+
+```json
+{
+  "type": "summary",
+  "payload": {
+    "summary_text": "User alice requested a disk space check. Agent cmd-agent ran 'df -h' and reported 50% usage on /dev/disk1. User confirmed this was expected.",
+    "covers_until_ts": 1734530500,
+    "message_count": 47,
+    "generated_at": 1734530600
+  }
+}
+```
+
+Rules:
+- Published periodically (e.g., every 50-100 messages)
+- **New summaries are incremental**: they incorporate the previous summary + new messages
+- Agents always use: **most recent summary** + **ALL messages after covers_until_ts**
+- The summary itself grows incrementally but can be periodically re-summarized to stay bounded
+- `covers_until_ts` indicates the latest message timestamp included in the summary
+- Summaries replace previous summaries in agent context (only latest summary is used)
+
+Context Assembly:
+```
+Agent LLM Context = [Latest Summary] + [ALL messages where ts > covers_until_ts]
+```
+
+Example timeline:
+- Messages 1-100: Summary A (covers_until_ts = ts_of_msg_100)
+- Messages 101-200: Summary B = condense(Summary A + msgs 101-200), covers_until_ts = ts_of_msg_200
+- Agent at msg 220 sees: Summary B + **ALL** messages 201-220 (not a fixed window)
+- **Zero message loss**: every message is either in summary or after covers_until_ts
+
+Notes:
+- Agents don't use a fixed "last N" window, they use "all messages since summary"
+- Summary period determines context freshness vs. LLM call cost tradeoff
+- Summaries can be re-summarized periodically to prevent unbounded growth
+- LLMs excel at working with condensed context + recent detail
+
+---
+
 ## 6. Result `message_type` Definitions
 
 All agent disclosures MUST specify a `message_type`.
@@ -389,7 +437,7 @@ If invalid:
 ## 8. Security & ACL Model (Recommended)
 
 - Agents:
-  - SUB: `rooms/+/public`, `rooms/+/control`
+  - SUB: `rooms/+/public`, `rooms/+/control`, `rooms/+/summary`
   - PUB: `rooms/+/public_candidates`, `rooms/+/agents/{self}/work`
   - DENY: direct publish to `rooms/+/public`
 
@@ -398,8 +446,12 @@ If invalid:
   - PUB: `rooms/+/public`, `rooms/+/control`
 
 - Facilitator:
-  - PUB: agent inboxes, `control`, `public`
+  - PUB: agent inboxes, `control`, `public`, `summary`
   - SUB: all room topics
+
+- Summarizer (optional):
+  - SUB: `rooms/+/public`
+  - PUB: `rooms/+/summary`
 
 ---
 

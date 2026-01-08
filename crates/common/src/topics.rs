@@ -35,6 +35,11 @@ pub fn all_agent_heartbeats(room_id: &str) -> String {
     format!("rooms/{}/agents/+/heartbeat", room_id)
 }
 
+/// Conversation summaries (periodic condensed context)
+pub fn summary(room_id: &str) -> String {
+    format!("rooms/{}/summary", room_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

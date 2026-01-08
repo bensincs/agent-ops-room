@@ -31,6 +31,7 @@ pub enum EnvelopeType {
     Result,
     Reject,
     Heartbeat,
+    Summary,
 }
 
 /// Sender information
@@ -207,4 +208,17 @@ pub struct HeartbeatPayload {
 pub struct MicRevokePayload {
     pub task_id: String,
     pub agent_id: String,
+}
+
+/// Summary payload - conversation summary for context management
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SummaryPayload {
+    /// Condensed conversation summary
+    pub summary_text: String,
+    /// Timestamp of the latest message included in this summary
+    pub covers_until_ts: u64,
+    /// Number of messages summarized
+    pub message_count: u64,
+    /// When this summary was generated
+    pub generated_at: u64,
 }

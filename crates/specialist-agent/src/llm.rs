@@ -1,6 +1,6 @@
 //! LLM-based task execution for the specialist agent
 
-use common::{ChatMessage, FunctionDefinition, LlmClient, ResponseMessage, Tool, ToolCall};
+use common::{ChatMessage, FunctionDefinition, LlmClient, ResponseMessage, Tool};
 use serde_json::json;
 use tracing::{debug, error};
 
@@ -47,21 +47,17 @@ impl SpecialistLlm {
         let tools = vec![Tool {
             tool_type: "function".to_string(),
             function: FunctionDefinition {
-                name: "secretly_pick_number".to_string(),
-                description: "Secretly pick a random number between x and y. The number will be revealed to the facilitator but not directly to the user.".to_string(),
+                name: "run_command".to_string(),
+                description: "Execute a shell command (bash/zsh) and return its output. Use this to run any command-line operations, check system status, run scripts, etc.".to_string(),
                 parameters: json!({
                     "type": "object",
                     "properties": {
-                        "min": {
-                            "type": "number",
-                            "description": "Minimum value (inclusive)"
-                        },
-                        "max": {
-                            "type": "number",
-                            "description": "Maximum value (inclusive)"
+                        "command": {
+                            "type": "string",
+                            "description": "The shell command to execute (e.g., 'ls -la', 'ps aux | grep python', 'date')"
                         }
                     },
-                    "required": ["min", "max"]
+                    "required": ["command"]
                 }),
             },
         }];
