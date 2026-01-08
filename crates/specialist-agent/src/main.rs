@@ -251,11 +251,13 @@ async fn handle_inbox_message(
                             result_parts.push(format!("**Exit Code:** {}", exit_code));
 
                             if !stdout.is_empty() {
-                                result_parts.push(format!("**Output:**\n```\n{}\n```", stdout.trim()));
+                                result_parts
+                                    .push(format!("**Output:**\n```\n{}\n```", stdout.trim()));
                             }
 
                             if !stderr.is_empty() {
-                                result_parts.push(format!("**Errors:**\n```\n{}\n```", stderr.trim()));
+                                result_parts
+                                    .push(format!("**Errors:**\n```\n{}\n```", stderr.trim()));
                             }
 
                             result_parts.join("\n\n")

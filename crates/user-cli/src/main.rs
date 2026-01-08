@@ -347,26 +347,6 @@ async fn run_app(
                             app_lock.scroll_down();
                         }
                     }
-                    KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        // Ctrl+G: Jump to top
-                        app_lock.scroll_to_top();
-                    }
-                    KeyCode::Char('G') if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                        // Shift+G: Jump to bottom
-                        app_lock.scroll_to_bottom();
-                    }
-                    KeyCode::Char('g') if !app_lock.input.is_empty() => {
-                        // If typing, insert 'g'
-                        app_lock.enter_char('g');
-                    }
-                    KeyCode::Char('g') => {
-                        // Jump to top (vim-style)
-                        app_lock.scroll_to_top();
-                    }
-                    KeyCode::Char('G') => {
-                        // Jump to bottom (vim-style)
-                        app_lock.scroll_to_bottom();
-                    }
                     _ => {}
                 }
 
@@ -382,17 +362,17 @@ async fn run_app(
 
 fn ui(f: &mut Frame, app: &App) {
     let has_summary = app.current_summary.is_some();
-    
+
     let chunks = if has_summary {
         Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3), // Header
-                Constraint::Length(3), // Agents status bar
+                Constraint::Length(3),  // Header
+                Constraint::Length(3),  // Agents status bar
                 Constraint::Length(10), // Summary panel (increased from 6)
-                Constraint::Min(0),    // Messages
-                Constraint::Length(3), // Input
-                Constraint::Length(1), // Footer
+                Constraint::Min(0),     // Messages
+                Constraint::Length(3),  // Input
+                Constraint::Length(1),  // Footer
             ])
             .split(f.area())
     } else {
@@ -438,23 +418,26 @@ fn render_summary_panel(f: &mut Frame, area: Rect, app: &App) {
         let covers_until = DateTime::from_timestamp(summary.covers_until_ts as i64, 0)
             .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
             .unwrap_or_else(|| "unknown".to_string());
-        
-        let title = format!("📊 Summary ({} msgs until {})", summary.message_count, covers_until);
-        
+
+        let title = format!(
+            "📊 Summary ({} msgs until {})",
+            summary.message_count, covers_until
+        );
+
         let block = Block::default()
             .title(title)
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Yellow))
             .style(Style::default().bg(Color::Black));
-        
+
         let inner = block.inner(area);
         f.render_widget(block, area);
-        
+
         // Render summary text - no truncation, let it wrap
         let paragraph = Paragraph::new(summary.summary_text.as_str())
             .style(Style::default().fg(Color::White))
             .wrap(ratatui::widgets::Wrap { trim: true });
-        
+
         f.render_widget(paragraph, inner);
     }
 }
@@ -501,7 +484,7 @@ fn render_agents_bar(f: &mut Frame, area: Rect, app: &App) {
         result
     };
 
-        let agents_bar = Paragraph::new(Line::from(spans))
+    let agents_bar = Paragraph::new(Line::from(spans))
         .block(Block::default().borders(Borders::ALL).title("Agents"));
     f.render_widget(agents_bar, area);
 }
@@ -509,25 +492,23 @@ fn render_agents_bar(f: &mut Frame, area: Rect, app: &App) {
 /// Render markdown-like content with basic formatting
 fn render_markdown_content(content: &str, base_style: Style) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
-    
+
     // Simple markdown parsing for code blocks and bold
     let mut in_code_block = false;
-    
+
     for line in content.lines() {
         if line.trim().starts_with("```") {
             in_code_block = !in_code_block;
             continue;
         }
-        
+
         if in_code_block {
             // Render code with cyan color
             lines.push(Line::from(vec![
                 Span::raw("  "),
                 Span::styled(
                     line.to_string(),
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::DIM),
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::DIM),
                 ),
             ]));
         } else {
@@ -536,7 +517,7 @@ fn render_markdown_content(content: &str, base_style: Style) -> Vec<Line<'static
             let mut current = String::new();
             let mut is_bold = false;
             let mut chars = line.chars().peekable();
-            
+
             while let Some(ch) = chars.next() {
                 if ch == '*' && chars.peek() == Some(&'*') {
                     chars.next(); // consume second *
@@ -554,7 +535,7 @@ fn render_markdown_content(content: &str, base_style: Style) -> Vec<Line<'static
                     current.push(ch);
                 }
             }
-            
+
             if !current.is_empty() {
                 let style = if is_bold {
                     base_style.add_modifier(Modifier::BOLD)
@@ -563,11 +544,11 @@ fn render_markdown_content(content: &str, base_style: Style) -> Vec<Line<'static
                 };
                 spans.push(Span::styled(current, style));
             }
-            
+
             lines.push(Line::from(spans));
         }
     }
-    
+
     lines
 }
 
@@ -638,7 +619,12 @@ fn render_messages(f: &mut Frame, area: Rect, app: &App) {
 
     let actual_scroll = app.scroll_offset.min(max_scroll);
     let title = if total_lines > visible_lines {
-        format!("Messages (line {}/{}, {} msgs)", actual_scroll + 1, total_lines, app.messages.len())
+        format!(
+            "Messages (line {}/{}, {} msgs)",
+            actual_scroll + 1,
+            total_lines,
+            app.messages.len()
+        )
     } else {
         format!("Messages ({} msgs)", app.messages.len())
     };
@@ -663,7 +649,7 @@ fn render_input(f: &mut Frame, area: Rect, app: &App) {
 fn render_footer(f: &mut Frame, area: Rect, app: &App) {
     let findings_status = if app.show_findings { "ON" } else { "OFF" };
     let footer_text = format!(
-        " Enter: Send | ↑↓: Scroll | Ctrl+Home/g: Top | Ctrl+End/G: Bottom | Ctrl+F: Findings {} | Ctrl+C/D: Quit ",
+        " Enter: Send | ↑↓: Scroll | Ctrl+Home: Top | Ctrl+End: Bottom | Ctrl+F: Findings {} | Ctrl+C/D: Quit ",
         findings_status
     );
     let footer = Paragraph::new(footer_text)
@@ -763,7 +749,8 @@ async fn process_message(envelope: Envelope, app: &Arc<Mutex<App>>) {
             }
         }
         EnvelopeType::Summary => {
-            if let Ok(summary) = serde_json::from_value::<SummaryPayload>(envelope.payload.clone()) {
+            if let Ok(summary) = serde_json::from_value::<SummaryPayload>(envelope.payload.clone())
+            {
                 // Update the current summary in app state
                 let mut app_lock = app.lock().await;
                 app_lock.current_summary = Some(summary.clone());
