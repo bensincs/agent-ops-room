@@ -15,7 +15,7 @@ The Agent Ops Room requires multiple components running simultaneously. Here's h
 
 ### Start Components (in order)
 
-Open 5 separate terminal windows:
+Open 6 separate terminal windows:
 
 #### Terminal 1: MQTT Broker
 ```bash
@@ -64,7 +64,25 @@ cargo run --bin specialist-agent -- \
 ```
 A specialist agent that handles math-related tasks.
 
-#### Terminal 5: User CLI
+#### Terminal 5: Summarizer (Optional)
+```bash
+# With OpenAI
+cargo run --bin summarizer -- \
+  --room-id default \
+  --openai-api-key "sk-..." \
+  --openai-model "gpt-4o-mini" \
+  --summary-interval 3
+
+# With Azure OpenAI
+cargo run --bin summarizer -- \
+  --room-id default \
+  --openai-api-key "YOUR_AZURE_KEY" \
+  --openai-base-url "https://YOUR_RESOURCE.openai.azure.com/openai/deployments/YOUR_DEPLOYMENT" \
+  --summary-interval 3
+```
+The summarizer generates concise conversation summaries after every N task completions (default: 3). Summaries appear in the user CLI's dedicated summary panel.
+
+#### Terminal 6: User CLI
 ```bash
 cargo run --bin user-cli
 ```
@@ -112,6 +130,11 @@ Alternatively, use the provided scripts:
    - Facilitator acknowledges completion → `rooms/{room_id}/public`
 5. **If direct reply**:
    - Facilitator responds directly → `rooms/{room_id}/public`
+6. **Summarization** (if summarizer running):
+   - Summarizer tracks all messages on `rooms/{room_id}/public`
+   - After N task completions (Result messages), generates summary
+   - Publishes summary → `rooms/{room_id}/summary`
+   - User CLI displays summary in dedicated panel
 
 ## User Interface
 
@@ -123,6 +146,10 @@ The user CLI is a full-screen TUI (Terminal User Interface) built with **ratatui
   - ⚪ Gray = Idle
   - 🟡 Yellow = Working (processing a task)
   - 🟢 Green = Complete (just finished)
+- **Summary Panel**: Displays latest conversation summary (when summarizer is running)
+  - Shows message count and timestamp coverage
+  - Yellow border for visibility
+  - Updates automatically as new summaries arrive
 - **Message View**: Scrollable chat with word wrapping
   - Users: Green
   - Facilitator: Cyan
@@ -179,6 +206,7 @@ Build specific component:
 cargo build --bin gateway
 cargo build --bin facilitator
 cargo build --bin specialist-agent
+cargo build --bin summarizer
 cargo build --bin user-cli
 ```
 
@@ -200,7 +228,10 @@ cargo run --bin facilitator -- --room-id test-room
 # Terminal 3
 cargo run --bin specialist-agent -- --room-id test-room --agent-id math-agent
 
-# Terminal 4
+# Terminal 4 (optional)
+cargo run --bin summarizer -- --room-id test-room --summary-interval 3
+
+# Terminal 5
 cargo run --bin user-cli -- --room-id test-room --user-id bob
 ```
 
@@ -248,7 +279,19 @@ Each component outputs logs to stdout. Look for:
 **Agent states not changing colors:**
 - Check that agents are sending Result messages with proper message_type
 - Facilitator and agents should send acks before processing
-- Complete state lasts 5 seconds before returning to Idle
+**Complete state lasts 5 seconds before returning to Idle
+
+**Summaries not appearing:**
+- Ensure summarizer is running with correct room_id
+- Check summarizer has valid OpenAI API key
+- Summaries trigger after N task completions (Result messages)
+- Default interval is 3 completed tasks
+- Check summarizer logs for "Reached N completed tasks, generating summary..."
+
+**Summary panel not visible in UI:**
+- Summary panel only appears after first summary is generated
+- Check user-cli is subscribed to summary topic (no error logs)
+- Verify summary messages are being published (check MQTT with mosquitto_sub)
 
 ## Architecture
 
