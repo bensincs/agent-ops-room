@@ -5,7 +5,8 @@
 mod config;
 
 use clap::Parser;
-use common::{topics, Envelope};
+use common::message::HeartbeatPayload;
+use common::{topics, Envelope, EnvelopeType, Sender, SenderKind};
 use config::SinkConfig;
 use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS};
 use std::fs::OpenOptions;
@@ -13,6 +14,13 @@ use std::io::Write;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{error, info};
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -48,6 +56,55 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     client.subscribe(&public_topic, QoS::AtLeastOnce).await?;
 
     info!("Subscribed to: {}", public_topic);
+    
+    // Spawn heartbeat task
+    let client_clone = client.clone();
+    let room_id = config.room_id.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
+        let mut counter = 0u64;
+        loop {
+            interval.tick().await;
+            counter += 1;
+            let now = now_secs();
+            
+            let payload = if counter % 3 == 0 {
+                HeartbeatPayload {
+                    ts: now,
+                    description: Some("Sink - stores messages to file for archival and analysis".to_string()),
+                    can_accept_tasks: false,
+                }
+            } else {
+                HeartbeatPayload {
+                    ts: now,
+                    description: None,
+                    can_accept_tasks: false,
+                }
+            };
+            
+            let heartbeat = Envelope {
+                id: format!("sink_heartbeat_{}", counter),
+                message_type: EnvelopeType::Heartbeat,
+                room_id: room_id.clone(),
+                from: Sender {
+                    kind: SenderKind::System,
+                    id: "sink".to_string(),
+                },
+                ts: now,
+                payload: serde_json::to_value(payload).unwrap(),
+            };
+            let topic = format!("rooms/{}/agents/sink/heartbeat", room_id);
+            let _ = client_clone
+                .publish(
+                    topic,
+                    QoS::AtLeastOnce,
+                    false,
+                    serde_json::to_vec(&heartbeat).unwrap(),
+                )
+                .await;
+        }
+    });
+    
     info!("Sink running - writing messages to {}", config.output_file);
 
     // Main event loop

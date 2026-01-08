@@ -8,6 +8,7 @@ mod llm;
 
 use clap::Parser;
 use common::{topics, Envelope, EnvelopeType, MessageHistory, ResultPayload, Sender, SenderKind, SummaryPayload};
+use common::message::HeartbeatPayload;
 use config::SummarizerConfig;
 use llm::SummarizerLlm;
 use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS};
@@ -49,6 +50,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.openai_model.clone(),
         Some(config.openai_base_url.clone()),
     );
+
+    // Spawn heartbeat task
+    let client_clone = client.clone();
+    let room_id = config.room_id.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
+        let mut counter = 0u64;
+        loop {
+            interval.tick().await;
+            counter += 1;
+            let now = now_secs();
+            
+            let payload = if counter % 3 == 0 {
+                HeartbeatPayload {
+                    ts: now,
+                    description: Some("Summarizer - generates conversation summaries for context management".to_string()),
+                    can_accept_tasks: false,
+                }
+            } else {
+                HeartbeatPayload {
+                    ts: now,
+                    description: None,
+                    can_accept_tasks: false,
+                }
+            };
+            
+            let heartbeat = Envelope {
+                id: format!("summarizer_heartbeat_{}", counter),
+                message_type: EnvelopeType::Heartbeat,
+                room_id: room_id.clone(),
+                from: Sender {
+                    kind: SenderKind::System,
+                    id: "summarizer".to_string(),
+                },
+                ts: now,
+                payload: serde_json::to_value(payload).unwrap(),
+            };
+            let topic = format!("rooms/{}/agents/summarizer/heartbeat", room_id);
+            let _ = client_clone
+                .publish(
+                    topic,
+                    QoS::AtLeastOnce,
+                    false,
+                    serde_json::to_vec(&heartbeat).unwrap(),
+                )
+                .await;
+        }
+    });
 
     info!("Summarizer running");
 

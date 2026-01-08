@@ -201,6 +201,9 @@ pub struct HeartbeatPayload {
     /// Optional agent description (sent every 3rd heartbeat)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Whether this component can accept task assignments via inbox
+    #[serde(default)]
+    pub can_accept_tasks: bool,
 }
 
 /// Mic revoke payload

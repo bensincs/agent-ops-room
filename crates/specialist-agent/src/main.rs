@@ -373,11 +373,13 @@ async fn send_heartbeats(client: AsyncClient, room_id: &str, agent_id: &str) {
             HeartbeatPayload {
                 ts,
                 description: Some(description.to_string()),
+                can_accept_tasks: true,
             }
         } else {
             HeartbeatPayload {
                 ts,
                 description: None,
+                can_accept_tasks: true,
             }
         };
 

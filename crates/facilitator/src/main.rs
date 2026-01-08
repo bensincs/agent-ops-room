@@ -83,6 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     description: Some(
                         "Facilitator - coordinates tasks and assigns work to agents".to_string(),
                     ),
+                    can_accept_tasks: false,
                 })
                 .unwrap(),
             };
@@ -129,17 +130,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn handle_heartbeat(topic: &str, payload: &[u8], agent_registry: &mut AgentRegistry) {
     // Extract agent_id from: rooms/{roomId}/agents/{agentId}/heartbeat
     if let Some(agent_id) = topic.split('/').nth(3) {
-        // Don't register ourselves as an agent we can assign tasks to
-        if agent_id == "facilitator" {
-            return;
-        }
-
         if let Ok(envelope) = serde_json::from_slice::<Envelope>(payload) {
             if envelope.message_type == EnvelopeType::Heartbeat {
                 if let Ok(heartbeat) =
                     serde_json::from_value::<common::message::HeartbeatPayload>(envelope.payload)
                 {
-                    agent_registry.update_agent(agent_id.to_string(), heartbeat.description);
+                    // Only register agents that can accept tasks
+                    if heartbeat.can_accept_tasks {
+                        agent_registry.update_agent(agent_id.to_string(), heartbeat.description);
+                    }
                 }
             }
         }
