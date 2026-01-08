@@ -61,6 +61,13 @@ Specialist agents:
 - act only when tasked
 - selectively disclose useful information
 
+### Summarizer
+The summarizer:
+- tracks conversation flow
+- generates concise summaries after task completions
+- helps maintain context as conversations grow
+- prevents information loss in long sessions
+
 ### Moderation by Design
 Agents cannot speak publicly unless:
 - they are assigned a task
@@ -112,6 +119,10 @@ Small binaries. Clear contracts. MQTT as the backbone.
 - Spec-driven
 - Implementation in Rust
 - **Gateway**: ✅ Implemented and working
+- **Facilitator**: ✅ Implemented
+- **Specialist Agent**: ✅ Implemented
+- **Summarizer**: ✅ Implemented
+- **User CLI**: ✅ Implemented
 
 ---
 
@@ -149,7 +160,60 @@ AOR_ROOM_ID=my-room \
 cargo run --bin gateway
 ```
 
-### 3. View MQTT Messages
+### 3. Run the Facilitator (Optional)
+
+In a new terminal:
+
+```bash
+cargo run --bin facilitator -- \
+  --room-id default \
+  --openai-api-key "your-api-key" \
+  --openai-base-url "https://api.openai.com/v1"
+```
+
+### 4. Run the Summarizer (Optional)
+
+In a new terminal:
+
+```bash
+cargo run --bin summarizer -- \
+  --room-id default \
+  --openai-api-key "your-api-key" \
+  --openai-base-url "https://api.openai.com/v1" \
+  --summary-interval 3
+```
+
+The summarizer generates concise summaries after every N task completions (default: 3).
+
+### 5. Run a Specialist Agent (Optional)
+
+In a new terminal:
+
+```bash
+cargo run --bin specialist-agent -- \
+  --room-id default \
+  --agent-id cmd-agent \
+  --openai-api-key "your-api-key" \
+  --openai-base-url "https://api.openai.com/v1"
+```
+
+### 6. Run the User CLI (Optional)
+
+In a new terminal:
+
+```bash
+cargo run --bin user-cli -- \
+  --room-id default \
+  --user-id alice
+```
+
+The CLI provides an interactive TUI with:
+- Real-time message display
+- Summary panel (when summarizer is running)
+- Agent status tracking
+- Message input
+
+### 7. View MQTT Messages
 
 Open http://localhost:4001 in your browser to see the MQTT Explorer.
 
@@ -163,10 +227,15 @@ rooms/
   └── default/
       ├── public             # Approved messages
       ├── public_candidates  # Agent messages awaiting approval
-      └── control            # Mic grants, rejections, events
+      ├── control            # Mic grants, rejections, events
+      ├── summary            # Conversation summaries
+      └── agents/
+          └── {agent-id}/
+              ├── inbox      # Private tasks for specific agents
+              └── heartbeat  # Agent health status
 ```
 
-### 4. Test the Gateway
+### 8. Test the Gateway
 
 You can publish test messages using MQTT Explorer or `mosquitto_pub`:
 
@@ -211,7 +280,7 @@ Watch the gateway logs and MQTT Explorer to see:
 - Republished to `rooms/default/public`
 - Or rejected to `rooms/default/control` if invalid
 
-### 5. Stop Everything
+### 9. Stop Everything
 
 ```bash
 docker-compose down
