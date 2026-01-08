@@ -4,7 +4,7 @@ members = [
     "crates/facilitator",
     "crates/gateway",
     "crates/specialist-agent",
-    "crates/common", "crates/user-cli", "crates/summarizer",
+    "crates/common", "crates/user-cli", "crates/summarizer", "crates/sink",
 ]
 resolver = "2"
 

@@ -1,0 +1,3 @@
+{"id":"user_msg_1767877155","type":"say","room_id":"default","from":{"kind":"user","id":"alice"},"ts":1767877155,"payload":{"text":"hello"}}
+{"id":"facilitator_ack_1767877155","type":"result","room_id":"default","from":{"kind":"agent","id":"facilitator"},"ts":1767877155,"payload":{"content":{"text":"Processing your request..."},"message_type":"ack","task_id":"facilitator_task_1767877155"}}
+{"id":"facilitator_1767877158","type":"result","room_id":"default","from":{"kind":"agent","id":"facilitator"},"ts":1767877158,"payload":{"content":{"text":"Hi! I’m here to help coordinate tasks between you and our specialist agents. What can I assist you with today?"},"message_type":"result","task_id":"facilitator_response"}}

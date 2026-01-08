@@ -82,7 +82,15 @@ cargo run --bin summarizer -- \
 ```
 The summarizer generates concise conversation summaries after every N task completions (default: 3). Summaries appear in the user CLI's dedicated summary panel.
 
-#### Terminal 6: User CLI
+#### Terminal 6: Sink (Optional)
+```bash
+cargo run --bin sink -- \
+  --room-id default \
+  --output-file messages.jsonl
+```
+The sink stores all public messages to a JSONL file (one JSON per line) for archival, analysis, and auditing purposes. Runs passively without affecting the room.
+
+#### Terminal 7: User CLI
 ```bash
 cargo run --bin user-cli
 ```
@@ -207,6 +215,7 @@ cargo build --bin gateway
 cargo build --bin facilitator
 cargo build --bin specialist-agent
 cargo build --bin summarizer
+cargo build --bin sink
 cargo build --bin user-cli
 ```
 

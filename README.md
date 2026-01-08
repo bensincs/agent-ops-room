@@ -68,6 +68,13 @@ The summarizer:
 - helps maintain context as conversations grow
 - prevents information loss in long sessions
 
+### Sink
+The sink:
+- stores all public messages to a file
+- writes in JSONL format (one JSON per line)
+- provides archival and audit capabilities
+- runs passively without affecting the room
+
 ### Moderation by Design
 Agents cannot speak publicly unless:
 - they are assigned a task
@@ -122,6 +129,7 @@ Small binaries. Clear contracts. MQTT as the backbone.
 - **Facilitator**: ✅ Implemented
 - **Specialist Agent**: ✅ Implemented
 - **Summarizer**: ✅ Implemented
+- **Sink**: ✅ Implemented
 - **User CLI**: ✅ Implemented
 
 ---
@@ -185,7 +193,19 @@ cargo run --bin summarizer -- \
 
 The summarizer generates concise summaries after every N task completions (default: 3).
 
-### 5. Run a Specialist Agent (Optional)
+### 5. Run the Sink (Optional)
+
+In a new terminal:
+
+```bash
+cargo run --bin sink -- \
+  --room-id default \
+  --output-file messages.jsonl
+```
+
+The sink stores all public messages to a JSONL file for archival and analysis.
+
+### 6. Run a Specialist Agent (Optional)
 
 In a new terminal:
 
@@ -197,7 +217,7 @@ cargo run --bin specialist-agent -- \
   --openai-base-url "https://api.openai.com/v1"
 ```
 
-### 6. Run the User CLI (Optional)
+### 7. Run the User CLI (Optional)
 
 In a new terminal:
 
@@ -213,7 +233,7 @@ The CLI provides an interactive TUI with:
 - Agent status tracking
 - Message input
 
-### 7. View MQTT Messages
+### 8. View MQTT Messages
 
 Open http://localhost:4001 in your browser to see the MQTT Explorer.
 
@@ -235,7 +255,7 @@ rooms/
               └── heartbeat  # Agent health status
 ```
 
-### 8. Test the Gateway
+### 9. Test the Gateway
 
 You can publish test messages using MQTT Explorer or `mosquitto_pub`:
 
@@ -280,7 +300,7 @@ Watch the gateway logs and MQTT Explorer to see:
 - Republished to `rooms/default/public`
 - Or rejected to `rooms/default/control` if invalid
 
-### 9. Stop Everything
+### 10. Stop Everything
 
 ```bash
 docker-compose down
